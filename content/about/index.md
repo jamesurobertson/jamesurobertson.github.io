@@ -7,9 +7,6 @@ skills:
   - React
   - Flask
   - Node.js
-  - SQLAlchemy
-  - Express
-  - Postgres
   - HTML & (S)CSS
 ---
 
