@@ -11,9 +11,10 @@ skills:
   - Express
   - Postgres
   - HTML & (S)CSS
+  - MongoDb
 ---
 
-Hello! I'm James, a software engineer based in Huntsville, AL.
+Hello! I'm James, a software engineer currently based in Huntsville, AL.
 
 My background is in customer care and hotel management where I gained a passion for delivering a superior customer experience. This passion has evolved into me being obsessed with the user experience and has helped me develop skils to create software that is both beautiful and intuitive.
 
