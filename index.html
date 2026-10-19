@@ -9,9 +9,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-  html, body { height: 100%; margin: 0; }
-  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 16px; box-sizing: border-box; background: #0b0710; color: #b9a9d6; font: 10px/1.8 'Press Start 2P', monospace; }
+  html { height: 100%; }
+  body { min-height: 100%; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 16px; box-sizing: border-box; background: #0b0710; color: #b9a9d6; font: 10px/1.8 'Press Start 2P', monospace; }
   h1 { margin: 0; color: #f2c14e; font-size: 12px; font-weight: normal; letter-spacing: 1px; }
+  #stage { position: relative; max-width: 100%; }
+  #viewport { overflow: hidden; }
   #room { position: relative; width: 320px; height: 180px; }
   #room canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
   .hotspot { position: absolute; padding: 0; border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -19,16 +21,37 @@
   #tag { position: absolute; transform: translate(-50%, -100%); margin-top: -8px; padding: 5px 7px 4px; pointer-events: none; white-space: nowrap; background: #f2c14e; color: #1a1024; font-size: clamp(8px, calc(var(--px, 1px) * 3), 16px); box-shadow: 0 3px 0 #8a5a1c; }
   #tag::after { content: ''; position: absolute; left: var(--arrow, 50%); bottom: -7px; margin-left: -4px; border: 4px solid transparent; border-top-color: #8a5a1c; }
   #status { margin: 0; min-height: 3.6em; max-width: min(64ch, 100%); text-align: center; }
+  #hint { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 5px 8px 4px; pointer-events: none; white-space: nowrap; background: rgba(11, 7, 16, 0.85); color: #f2c14e; font-size: 8px; transition: opacity 0.4s; }
+  #hint.gone { opacity: 0; }
+  #list { display: none; flex-direction: column; gap: 8px; width: 100%; max-width: 480px; padding: 0 16px; box-sizing: border-box; }
+  .item { display: grid; grid-template-columns: 80px 1fr; gap: 12px; align-items: center; padding: 8px; border: 2px solid #3a2e52; background: #150e20; color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .item:active, .item:focus-visible { border-color: #f2c14e; outline: none; }
+  .item canvas { width: 80px; height: 56px; object-fit: contain; image-rendering: pixelated; }
+  .item strong { display: block; color: #f2c14e; font-size: 10px; font-weight: normal; }
+  .item span { display: block; font-size: 8px; line-height: 1.7; }
+  body.short h1 { display: none; }
+  body.mobile { justify-content: flex-start; padding: 16px 0 24px; }
+  body.mobile h1, body.mobile #status { padding: 0 16px; }
+  body.mobile #stage { width: 100%; }
+  body.mobile #viewport { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  body.mobile #viewport::-webkit-scrollbar { display: none; }
+  body.mobile #list { display: flex; }
   noscript a { display: block; color: #f2c14e; margin: 8px 0; }
 </style>
 </head>
 <body>
 <h1>James Robertson</h1>
-<div id="room">
-  <canvas id="scene" width="320" height="180" aria-hidden="true"></canvas>
-  <div id="tag" hidden></div>
+<div id="stage">
+  <div id="viewport">
+    <div id="room">
+      <canvas id="scene" width="320" height="180" aria-hidden="true"></canvas>
+      <div id="tag" hidden></div>
+    </div>
+  </div>
+  <div id="hint" hidden>&lt; swipe to look around &gt;</div>
 </div>
 <p id="status" aria-live="polite"></p>
+<nav id="list" aria-label="Games and music"></nav>
 <noscript>
   <a href="/deepheart/">Deepheart</a>
   <a href="/gridpop/">GridPop</a>
@@ -49,6 +72,9 @@ const ctx = canvas.getContext('2d');
 const tag = document.getElementById('tag');
 const statusLine = document.getElementById('status');
 const heading = document.querySelector('h1');
+const viewport = document.getElementById('viewport');
+const swipeHint = document.getElementById('hint');
+const list = document.getElementById('list');
 
 function makeLayer(w = W, h = H) {
   const layer = document.createElement('canvas');
@@ -497,7 +523,7 @@ function autoplay() {
     const gestures = ['pointerup', 'keydown'];
     const stopListening = () => gestures.forEach((type) => removeEventListener(type, start, true));
     const start = (e) => {
-      if (recordPlayer.el.contains(e.target)) return;
+      if (e.target.closest?.('[data-music]')) return;
       if (!music.audio.paused || music.stoppedByUser) return stopListening();
       music.audio.play().then(stopListening, () => {});
     };
@@ -790,9 +816,13 @@ function drawExit(now) {
   }
 }
 
+function blurbOf(obj) {
+  return typeof obj.blurb === 'function' ? obj.blurb() : obj.blurb;
+}
+
 function describe(obj) {
   if (!obj) return `${verb} something in the room.`;
-  const blurb = typeof obj.blurb === 'function' ? obj.blurb() : obj.blurb;
+  const blurb = blurbOf(obj);
   const hint = obj.href && lastPointerType === 'touch' ? ' Tap again to open.' : '';
   return `${obj.name}: ${blurb}${hint}`;
 }
@@ -801,7 +831,15 @@ function setActive(obj) {
   active = obj;
   statusLine.textContent = describe(obj);
   tag.hidden = !obj;
-  if (obj) placeTag(obj);
+  if (!obj) return;
+  placeTag(obj);
+  if (mobile) centerOn(obj);
+}
+
+function centerOn(obj) {
+  const [x, , w] = obj.box;
+  const scale = room.clientWidth / W;
+  viewport.scrollTo({ left: (x + w / 2) * scale - viewport.clientWidth / 2, behavior: reducedMotion ? 'auto' : 'smooth' });
 }
 
 function placeTag(obj) {
@@ -818,6 +856,7 @@ function placeTag(obj) {
 
 function refreshStatus(obj) {
   if (active === obj) setActive(obj);
+  if (obj.listItem) obj.listItem.blurb.textContent = blurbOf(obj);
 }
 
 function toggleLamp() {
@@ -861,24 +900,62 @@ for (const obj of objects) {
   el.addEventListener('focus', () => { if (lastPointerType === 'keyboard') setActive(obj); });
   el.addEventListener('blur', () => { if (active === obj) setActive(null); });
   el.addEventListener('click', (e) => onHotspotClick(e, obj));
+  if (obj === recordPlayer) el.dataset.music = '';
   room.appendChild(el);
-  obj.el = el;
+}
+
+const listed = objects.filter((obj) => obj.href || obj === recordPlayer);
+for (const obj of listed) {
+  const item = document.createElement(obj.href ? 'a' : 'button');
+  item.className = 'item';
+  if (obj.href) {
+    item.href = obj.href;
+  } else {
+    item.type = 'button';
+    item.dataset.music = '';
+    item.addEventListener('click', obj.action);
+  }
+  const [, , w, h] = obj.box;
+  const thumb = makeLayer(w, h);
+  thumb.canvas.setAttribute('aria-hidden', 'true');
+  const label = document.createElement('div');
+  const name = document.createElement('strong');
+  name.textContent = obj.href ? obj.name : 'Music';
+  const blurb = document.createElement('span');
+  blurb.textContent = blurbOf(obj);
+  label.append(name, blurb);
+  item.append(thumb.canvas, label);
+  list.appendChild(item);
+  obj.listItem = { thumb, blurb };
 }
 
 room.addEventListener('pointerdown', (e) => { lastPointerType = e.pointerType; }, true);
 canvas.addEventListener('pointerdown', () => setActive(null));
+viewport.addEventListener('pointerdown', () => swipeHint.classList.add('gone'), { once: true });
 document.addEventListener('keydown', () => { lastPointerType = 'keyboard'; });
 addEventListener('pageshow', (e) => { if (e.persisted) leaving = null; });
 
+let mobile = false;
+
+// Portrait phones get a bigger room that pans sideways, with a list of everything underneath.
 function fit() {
+  document.body.classList.toggle('short', innerHeight < 500);
   const availableW = innerWidth - 32;
   const availableH = innerHeight - 64 - heading.offsetHeight - statusLine.offsetHeight;
-  let scale = Math.min(availableW / W, availableH / H);
-  if (scale >= 2) scale = Math.floor(scale);
+  const fitScale = Math.min(availableW / W, availableH / H);
+  const wasMobile = mobile;
+  mobile = fitScale < 2 && innerHeight > innerWidth;
+  document.body.classList.toggle('mobile', mobile);
+  let scale = fitScale >= 2 ? Math.floor(fitScale) : fitScale;
+  if (mobile) scale = Math.min(3, Math.max(2, innerHeight * 0.52 / H));
   room.style.width = `${W * scale}px`;
   room.style.height = `${H * scale}px`;
   room.style.setProperty('--px', `${scale}px`);
   if (active) placeTag(active);
+  if (mobile && !wasMobile) {
+    viewport.scrollLeft = (W / 2) * scale - viewport.clientWidth / 2;
+    swipeHint.hidden = false;
+  }
 }
 
 let lastRender = -Infinity;
@@ -894,6 +971,14 @@ function render(now) {
     obj.layer.ctx.clearRect(0, 0, W, H);
     obj.draw(obj.layer.ctx, t);
     ctx.drawImage(obj.layer.canvas, 0, 0);
+  }
+  if (mobile) {
+    for (const obj of listed) {
+      const [x, y, w, h] = obj.box;
+      const { thumb } = obj.listItem;
+      thumb.ctx.clearRect(0, 0, w, h);
+      thumb.ctx.drawImage(obj.layer.canvas, x, y, w, h, 0, 0, w, h);
+    }
   }
   drawLighting(t);
   drawEmissive(ctx, t);
