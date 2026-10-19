@@ -4,19 +4,814 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Links</title>
+<title>James Robertson</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   html, body { height: 100%; margin: 0; }
-  body { display: grid; place-content: center; gap: 12px; background: #0b0710; font: 600 20px/1 system-ui, sans-serif; }
-  a { display: flex; align-items: center; justify-content: center; gap: 10px; color: #f2c14e; text-decoration: none; padding: 12px 20px; border: 2px solid #f2c14e; }
-  a:hover { background: #f2c14e; color: #0b0710; }
-  img { width: 24px; height: 24px; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 16px; box-sizing: border-box; background: #0b0710; color: #b9a9d6; font: 10px/1.8 'Press Start 2P', monospace; }
+  h1 { margin: 0; color: #f2c14e; font-size: 12px; font-weight: normal; letter-spacing: 1px; }
+  #room { position: relative; width: 320px; height: 180px; }
+  #room canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+  .hotspot { position: absolute; padding: 0; border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .hotspot:focus { outline: none; }
+  #tag { position: absolute; transform: translate(-50%, -100%); margin-top: -8px; padding: 5px 7px 4px; pointer-events: none; white-space: nowrap; background: #f2c14e; color: #1a1024; font-size: clamp(8px, calc(var(--px, 1px) * 3), 16px); box-shadow: 0 3px 0 #8a5a1c; }
+  #tag::after { content: ''; position: absolute; left: var(--arrow, 50%); bottom: -7px; margin-left: -4px; border: 4px solid transparent; border-top-color: #8a5a1c; }
+  #status { margin: 0; min-height: 3.6em; max-width: min(64ch, 100%); text-align: center; }
+  noscript a { display: block; color: #f2c14e; margin: 8px 0; }
 </style>
 </head>
 <body>
-<a href="/deepheart/">Deepheart</a>
-<a href="https://elo9000.com"><img src="https://elo9000.com/favicon.svg" alt="">elo9000</a>
-<a href="/trumple/"><img src="/trumple/images/favicon-32x32.png" alt="">Trumple</a>
-<a href="/gridpop/"><img src="/gridpop/favicon/favicon.svg" alt="">GridPop</a>
+<h1>James Robertson</h1>
+<div id="room">
+  <canvas id="scene" width="320" height="180" aria-hidden="true"></canvas>
+  <div id="tag" hidden></div>
+</div>
+<p id="status" aria-live="polite"></p>
+<noscript>
+  <a href="/deepheart/">Deepheart</a>
+  <a href="/gridpop/">GridPop</a>
+  <a href="/trumple/">Trumple</a>
+  <a href="https://elo9000.com">elo9000</a>
+</noscript>
+<script>
+const W = 320, H = 180;
+const FRAME_MS = 1000 / 24;
+const EXIT_MS = 380;
+const OUTLINE = '#fff3c4';
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const verb = matchMedia('(pointer: coarse)').matches ? 'Tap' : 'Click';
+
+const room = document.getElementById('room');
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+const tag = document.getElementById('tag');
+const statusLine = document.getElementById('status');
+const heading = document.querySelector('h1');
+
+function makeLayer(w = W, h = H) {
+  const layer = document.createElement('canvas');
+  layer.width = w;
+  layer.height = h;
+  return { canvas: layer, ctx: layer.getContext('2d') };
+}
+
+function rect(c, x, y, w, h, color) {
+  c.fillStyle = color;
+  c.fillRect(x, y, w, h);
+}
+
+function sprite(c, rows, x, y, palette) {
+  rows.forEach((row, j) => {
+    for (let i = 0; i < row.length; i++) {
+      const color = palette[row[i]];
+      if (color) rect(c, x + i, y + j, 1, 1, color);
+    }
+  });
+}
+
+function line(c, x0, y0, x1, y1, color) {
+  c.fillStyle = color;
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  for (;;) {
+    c.fillRect(x0, y0, 1, 1);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+}
+
+function disc(c, cx, cy, r, color) {
+  c.fillStyle = color;
+  for (let dy = -r; dy <= r; dy++) {
+    const dx = Math.floor(Math.sqrt(r * r - dy * dy + r * 0.8));
+    c.fillRect(cx - dx, cy + dy, dx * 2 + 1, 1);
+  }
+}
+
+const GLYPHS = {
+  T: ['111', '010', '010', '010', '010'],
+  R: ['110', '101', '110', '101', '101'],
+  U: ['101', '101', '101', '101', '111'],
+  M: ['101', '111', '111', '101', '101'],
+  P: ['110', '101', '110', '100', '100'],
+  L: ['100', '100', '100', '100', '111'],
+  E: ['111', '100', '110', '100', '111'],
+  1: ['010', '110', '010', '010', '111'],
+  2: ['110', '001', '010', '100', '111'],
+  3: ['110', '001', '010', '001', '110'],
+  4: ['101', '101', '111', '001', '001'],
+  5: ['111', '100', '110', '001', '110'],
+  6: ['011', '100', '110', '101', '010'],
+};
+
+function text(c, str, x, y, color) {
+  [...String(str)].forEach((ch, k) => sprite(c, GLYPHS[ch], x + k * 4, y, { 1: color }));
+}
+
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = seed + 0x6d2b79f5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// ---------- static scenery ----------
+
+const SKY_BANDS = ['#0c0d2e', '#131540', '#1c1a52', '#2a2163'];
+const STARS = [[131, 23], [138, 30], [146, 21], [152, 36], [165, 24], [172, 40], [189, 22], [134, 41], [148, 44], [186, 42], [168, 31], [156, 27]];
+const BULB_COLORS = ['#ff6b6b', '#f2c14e', '#6bd1ff', '#9dff8a'];
+const BOOK_COLORS = ['#3f6fb5', '#c94f4f', '#e0b24a', '#4f9a6a', '#8a5ac9', '#d9d2c0'];
+
+const city = (() => {
+  const rand = mulberry32(7);
+  const back = [], front = [], windows = [];
+  for (let x = 127; x < 193;) {
+    const w = 5 + Math.floor(rand() * 6), h = 10 + Math.floor(rand() * 14);
+    back.push([x, 77 - h, w, h]);
+    x += w;
+  }
+  for (let x = 125; x < 193;) {
+    const w = 6 + Math.floor(rand() * 7), h = 5 + Math.floor(rand() * 10);
+    front.push([x, 77 - h, w, h]);
+    for (let wy = 77 - h + 2; wy < 76; wy += 2) {
+      for (let wx = x + 1; wx < x + w - 1; wx += 2) {
+        if (rand() < 0.28) windows.push([wx, wy, rand()]);
+      }
+    }
+    x += w + Math.floor(rand() * 2);
+  }
+  return { back, front, windows };
+})();
+
+const books = (() => {
+  const rand = mulberry32(3);
+  const list = [];
+  for (let x = 222; x < 274;) {
+    const w = 2 + Math.floor(rand() * 3), h = 9 + Math.floor(rand() * 8);
+    list.push([x, 48 - h, w, h, BOOK_COLORS[Math.floor(rand() * BOOK_COLORS.length)]]);
+    x += w + (rand() < 0.2 ? 1 : 0);
+  }
+  return list;
+})();
+
+function wireY(x) {
+  return 4 + Math.round(6 * Math.sin(Math.PI * (x % 80) / 80));
+}
+
+function drawWindow(c, t) {
+  rect(c, 124, 16, 72, 64, '#4a3626');
+  rect(c, 124, 16, 72, 1, '#5e4630');
+  c.save();
+  c.beginPath();
+  c.rect(127, 19, 66, 58);
+  c.clip();
+  SKY_BANDS.forEach((color, k) => rect(c, 127, 19 + k * 15, 66, 15, color));
+  STARS.forEach(([x, y], i) => rect(c, x, y, 1, 1, Math.sin(t * 2 + i * 1.7) > 0.2 ? '#ffffff' : '#7d7bb8'));
+  disc(c, 181, 30, 5, '#f4ecc8');
+  rect(c, 179, 29, 2, 1, '#d9cf9f');
+  rect(c, 183, 32, 1, 1, '#d9cf9f');
+  city.back.forEach(([x, y, w, h]) => rect(c, x, y, w, h, '#16133a'));
+  city.front.forEach(([x, y, w, h]) => rect(c, x, y, w, h, '#0b0a22'));
+  city.windows.forEach(([x, y, seed]) => {
+    if (seed > 0.12 || Math.sin(t * 0.7 + seed * 90) > 0) rect(c, x, y, 1, 1, seed > 0.5 ? '#f2c14e' : '#ffe29a');
+  });
+  c.restore();
+  rect(c, 159, 19, 2, 58, '#4a3626');
+  rect(c, 127, 47, 66, 2, '#4a3626');
+  rect(c, 118, 80, 84, 3, '#6e523b');
+  rect(c, 118, 83, 84, 2, '#4a3626');
+}
+
+function drawCurtain(c, x) {
+  rect(c, x, 12, 14, 86, '#7a2e4a');
+  for (const fold of [3, 7, 11]) rect(c, x + fold, 12, 1, 86, '#5e2238');
+  rect(c, x, 96, 14, 2, '#5e2238');
+}
+
+function drawClock(c) {
+  const cx = 97, cy = 38;
+  disc(c, cx, cy, 7, '#1c130e');
+  disc(c, cx, cy, 6, '#e8e2d0');
+  for (const [dx, dy] of [[0, -5], [5, 0], [0, 5], [-5, 0]]) rect(c, cx + dx, cy + dy, 1, 1, '#8a8070');
+  const now = new Date();
+  const minuteAngle = (now.getMinutes() / 60) * Math.PI * 2;
+  const hourAngle = ((now.getHours() % 12 + now.getMinutes() / 60) / 12) * Math.PI * 2;
+  line(c, cx, cy, cx + Math.round(Math.sin(minuteAngle) * 5), cy - Math.round(Math.cos(minuteAngle) * 5), '#4a3e38');
+  line(c, cx, cy, cx + Math.round(Math.sin(hourAngle) * 3), cy - Math.round(Math.cos(hourAngle) * 3), '#1c130e');
+}
+
+function drawPicture(c) {
+  rect(c, 26, 20, 31, 21, '#1c130e');
+  rect(c, 27, 21, 29, 19, '#3b4f7a');
+  rect(c, 27, 33, 29, 7, '#2a3350');
+  line(c, 28, 34, 36, 25, '#2a3350');
+  line(c, 36, 25, 44, 33, '#2a3350');
+  line(c, 40, 33, 47, 27, '#232a45');
+  line(c, 47, 27, 55, 34, '#232a45');
+  for (let y = 26; y < 34; y++) {
+    const half = y - 25;
+    rect(c, 36 - half, y, half * 2 + 1, 1, '#2a3350');
+  }
+  rect(c, 35, 26, 3, 1, '#d9d2e9');
+  rect(c, 36, 25, 1, 1, '#d9d2e9');
+  rect(c, 46, 28, 3, 1, '#d9d2e9');
+  rect(c, 51, 23, 2, 2, '#f4ecc8');
+}
+
+function drawShelf(c) {
+  books.forEach(([x, y, w, h, color]) => {
+    rect(c, x, y, w, h, color);
+    rect(c, x, y + 2, w, 1, 'rgba(255,255,255,0.25)');
+  });
+  rect(c, 276, 37, 3, 11, '#c94f4f');
+  rect(c, 279, 36, 2, 12, '#4f9a6a');
+  rect(c, 285, 41, 11, 2, '#c9764a');
+  rect(c, 286, 43, 9, 5, '#b5603a');
+  for (const [x, y] of [[287, 39], [289, 37], [291, 38], [293, 36], [294, 39], [288, 40], [292, 40]]) rect(c, x, y, 2, 2, '#4f9a6a');
+  for (let y = 49; y < 60; y++) rect(c, 286 + (y % 3 === 0 ? 1 : 0), y, 1, 1, y % 2 ? '#3d7d55' : '#4f9a6a');
+  rect(c, 220, 48, 86, 3, '#6b4632');
+  rect(c, 220, 48, 86, 1, '#80553c');
+  rect(c, 226, 51, 2, 4, '#4a2f22');
+  rect(c, 298, 51, 2, 4, '#4a2f22');
+}
+
+function drawDesk(c, t) {
+  rect(c, 210, 141, 98, 3, 'rgba(0,0,0,0.25)');
+  rect(c, 215, 108, 4, 34, '#4f3324');
+  rect(c, 301, 108, 4, 34, '#4f3324');
+  rect(c, 266, 108, 32, 20, '#5a3a29');
+  rect(c, 266, 117, 32, 1, '#4a2f22');
+  rect(c, 279, 112, 6, 1, '#c9a24a');
+  rect(c, 279, 122, 6, 1, '#c9a24a');
+  rect(c, 212, 100, 96, 4, '#7a5038');
+  rect(c, 212, 100, 96, 1, '#8c5e42');
+  rect(c, 212, 104, 96, 4, '#4f3324');
+  rect(c, 262, 95, 5, 5, '#d8d0bf');
+  rect(c, 262, 95, 5, 1, '#5a3a29');
+  rect(c, 267, 96, 1, 3, '#d8d0bf');
+  for (let k = 0; k < 3; k++) {
+    const phase = (t * 0.5 + k / 3) % 1;
+    rect(c, 264 + Math.round(Math.sin(phase * 6 + k)), 93 - Math.round(phase * 9), 1, 1, `rgba(255,255,255,${0.4 * (1 - phase)})`);
+  }
+}
+
+function drawTvStand(c) {
+  rect(c, 8, 141, 76, 3, 'rgba(0,0,0,0.25)');
+  rect(c, 8, 122, 76, 20, '#5a3a29');
+  rect(c, 8, 122, 76, 2, '#7a5038');
+  rect(c, 12, 127, 68, 12, '#24170f');
+}
+
+function drawRug(c) {
+  rect(c, 70, 148, 180, 30, '#5b2240');
+  c.strokeStyle = '#7d3355';
+  c.lineWidth = 1;
+  c.strokeRect(72.5, 150.5, 175, 25);
+  for (let y = 154; y < 174; y += 4) {
+    for (let x = 76 + (y % 8 === 2 ? 4 : 0); x < 246; x += 8) rect(c, x, y, 1, 1, '#7d3355');
+  }
+}
+
+function drawCoffeeTable(c) {
+  rect(c, 96, 168, 128, 3, 'rgba(0,0,0,0.3)');
+  rect(c, 98, 158, 4, 11, '#33211a');
+  rect(c, 218, 158, 4, 11, '#33211a');
+  rect(c, 92, 134, 136, 22, '#5a3a29');
+  rect(c, 92, 134, 136, 1, '#6e4832');
+  for (const [x, y, w] of [[96, 138, 30], [150, 146, 40], [104, 152, 22], [196, 140, 24]]) rect(c, x, y, w, 1, '#523424');
+  rect(c, 92, 156, 136, 4, '#3a2619');
+}
+
+function drawPlant(c) {
+  rect(c, 290, 171, 22, 3, 'rgba(0,0,0,0.3)');
+  for (const [x, y] of [[286, 128], [292, 120], [300, 116], [308, 122], [314, 132], [282, 140], [312, 144]]) {
+    line(c, 300, 156, x, y, '#3d7d55');
+    const midX = Math.round((300 + x) / 2), midY = Math.round((156 + y) / 2);
+    rect(c, midX - 1, midY - 1, 3, 2, '#3d7d55');
+    rect(c, x - 2, y - 1, 4, 3, '#4f9a6a');
+    rect(c, x - 2, y - 1, 2, 1, '#6fbf86');
+  }
+  rect(c, 290, 155, 20, 3, '#c9764a');
+  rect(c, 292, 158, 16, 14, '#b5603a');
+  rect(c, 292, 158, 16, 1, '#8f4a2c');
+}
+
+function drawBeanbag(c) {
+  rect(c, 8, 172, 44, 3, 'rgba(0,0,0,0.3)');
+  for (let dy = -11; dy <= 10; dy++) {
+    const half = Math.round(19 * Math.sqrt(1 - (dy / 11.5) ** 2));
+    rect(c, 30 - half, 162 + dy, half * 2 + 1, 1, dy < -2 ? '#3f6fb5' : '#2f5590');
+  }
+  rect(c, 20, 153, 8, 1, '#5d8ad0');
+  rect(c, 30, 155, 1, 6, '#2f5590');
+}
+
+function drawRoom(c, t) {
+  rect(c, 0, 0, W, 130, '#2b2140');
+  for (let x = 3; x < W; x += 8) rect(c, x, 0, 1, 124, '#30254a');
+  rect(c, 0, 0, W, 3, '#221a35');
+  for (let x = 0; x < W; x++) rect(c, x, wireY(x), 1, 1, '#151020');
+  rect(c, 0, 124, W, 6, '#1f172d');
+  rect(c, 0, 124, W, 1, '#3a2e52');
+  rect(c, 0, 130, W, 50, '#5a3b2a');
+  rect(c, 0, 130, W, 1, '#6b4632');
+  for (let row = 0, y = 131; y < H; row++, y += 6) {
+    rect(c, 0, y + 5, W, 1, '#4a2f22');
+    for (let x = (row * 37) % 60; x < W; x += 60) rect(c, x, y, 1, 5, '#4a2f22');
+  }
+  drawPicture(c);
+  drawClock(c);
+  drawWindow(c, t);
+  drawCurtain(c, 112);
+  drawCurtain(c, 195);
+  rect(c, 108, 11, 104, 2, '#a07d45');
+  rect(c, 106, 10, 3, 4, '#c9a24a');
+  rect(c, 211, 10, 3, 4, '#c9a24a');
+  drawShelf(c);
+  drawDesk(c, t);
+  drawTvStand(c);
+  drawRug(c);
+  drawCoffeeTable(c);
+  drawBeanbag(c);
+  drawPlant(c);
+}
+
+// ---------- interactive things ----------
+
+const HEART = ['.xx.xx.', 'xhxxxxx', 'xxxxxxx', '.xxxxx.', '..xxx..', '...x...'];
+
+function heartBeat(t) {
+  return (t % 1.2) < 0.15;
+}
+
+function cardBack(c, x, y) {
+  rect(c, x, y, 11, 13, '#efe7d6');
+  rect(c, x + 1, y + 1, 9, 11, '#7a1f35');
+  for (let j = 0; j < 11; j++) {
+    for (let i = 0; i < 9; i++) if ((i + j) % 4 === 0) rect(c, x + 1 + i, y + 1 + j, 1, 1, '#9b2a4c');
+  }
+}
+
+function coin(c, x, y) {
+  rect(c, x + 1, y, 5, 1, '#f7d66b');
+  rect(c, x, y + 1, 7, 1, '#f2c14e');
+  rect(c, x, y + 2, 7, 1, '#b8862b');
+  rect(c, x + 1, y + 3, 5, 1, '#8a6420');
+}
+
+function drawCards(c, t) {
+  rect(c, 100, 149, 11, 4, '#bfb49c');
+  cardBack(c, 100, 137);
+  cardBack(c, 115, 140);
+  cardBack(c, 120, 139);
+  rect(c, 127, 138, 13, 15, '#cfc3a8');
+  rect(c, 128, 139, 11, 13, '#f6efdc');
+  const heartColor = heartBeat(t) ? '#ff8aa0' : '#ff5a7e';
+  sprite(c, HEART, 130, 142, { x: heartColor, h: '#ffd0da' });
+  rect(c, 129, 140, 1, 1, heartColor);
+  rect(c, 137, 150, 1, 1, heartColor);
+  for (let k = 0; k < 4; k++) coin(c, 146, 148 - k * 2);
+  coin(c, 154, 151);
+}
+
+const GRID_COLS = 5, GRID_ROWS = 4;
+const TILE_COLORS = { 1: '#7CCBFF', 2: '#7BDEA3', 3: '#FFD45E', 4: '#FF9A5E', 5: '#FF5A6E', 6: '#C77DFF' };
+const gridpop = {
+  cells: [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 4, 0, 0, 6], [3, 1, 0, 5, 2]],
+  piece: null,
+  poppingRow: -1,
+  timer: 0,
+};
+
+function stepGridPop(dt) {
+  const { cells } = gridpop;
+  gridpop.timer += dt;
+  if (gridpop.poppingRow >= 0) {
+    if (gridpop.timer < 0.6) return;
+    cells.splice(gridpop.poppingRow, 1);
+    cells.unshift(Array(GRID_COLS).fill(0));
+    gridpop.poppingRow = -1;
+    gridpop.timer = 0;
+    return;
+  }
+  if (gridpop.timer < 0.14) return;
+  gridpop.timer = 0;
+  const piece = gridpop.piece;
+  if (!piece) {
+    const depth = (col) => cells.findIndex((row) => row[col]) === -1 ? GRID_ROWS : cells.findIndex((row) => row[col]);
+    const deepest = Math.max(...cells[0].map((_, col) => depth(col)));
+    const choices = cells[0].map((_, col) => col).filter((col) => depth(col) === deepest);
+    gridpop.piece = { col: choices[Math.floor(Math.random() * choices.length)], row: 0, value: 1 + Math.floor(Math.random() * 6) };
+    return;
+  }
+  if (piece.row + 1 < GRID_ROWS && !cells[piece.row + 1][piece.col]) {
+    piece.row++;
+    return;
+  }
+  cells[piece.row][piece.col] = piece.value;
+  gridpop.piece = null;
+  gridpop.poppingRow = cells.findIndex((row) => row.every(Boolean));
+}
+
+function drawTile(c, x, y, value, flash) {
+  rect(c, x, y, 7, 7, flash ? '#ffffff' : TILE_COLORS[value]);
+  rect(c, x, y + 6, 7, 1, 'rgba(0,0,0,0.25)');
+  if (!flash) text(c, value, x + 2, y + 1, '#1f1633');
+}
+
+function drawTv(c, t) {
+  line(c, 42, 71, 31, 56, '#8a8494');
+  line(c, 50, 71, 61, 57, '#8a8494');
+  rect(c, 30, 55, 2, 2, '#c9c3d4');
+  rect(c, 60, 56, 2, 2, '#c9c3d4');
+  rect(c, 40, 70, 12, 2, '#2a2630');
+  rect(c, 14, 72, 64, 50, '#3a3540');
+  rect(c, 14, 72, 64, 1, '#524b5a');
+  rect(c, 14, 120, 64, 2, '#26222b');
+  rect(c, 18, 76, 46, 40, '#141118');
+  const screenX = 20, screenY = 78, screenW = 42, screenH = 36;
+  rect(c, screenX, screenY, screenW, screenH, '#3b2e5a');
+  const gridX = 21, gridY = 81;
+  rect(c, gridX - 1, gridY - 1, GRID_COLS * 8 + 1, GRID_ROWS * 8 + 1, '#1f1633');
+  gridpop.cells.forEach((row, r) => row.forEach((value, col) => {
+    const x = gridX + col * 8, y = gridY + r * 8;
+    if (value) drawTile(c, x, y, value, r === gridpop.poppingRow && Math.floor(gridpop.timer * 10) % 2 === 0);
+    else rect(c, x, y, 7, 7, '#2d2347');
+  }));
+  if (gridpop.piece) drawTile(c, gridX + gridpop.piece.col * 8, gridY + gridpop.piece.row * 8, gridpop.piece.value, false);
+  for (let y = screenY; y < screenY + screenH; y += 2) rect(c, screenX, y, screenW, 1, 'rgba(0,0,0,0.16)');
+  for (const [x, y] of [[screenX, screenY], [screenX + screenW - 1, screenY], [screenX, screenY + screenH - 1], [screenX + screenW - 1, screenY + screenH - 1]]) rect(c, x, y, 1, 1, '#141118');
+  disc(c, 71, 83, 2, '#8a8494');
+  disc(c, 71, 91, 2, '#8a8494');
+  for (let k = 0; k < 6; k++) rect(c, 67, 100 + k * 2, 8, 1, '#26222b');
+  // console in the stand
+  rect(c, 32, 127, 14, 4, '#4a4552');
+  rect(c, 34, 128, 10, 2, '#FFD45E');
+  rect(c, 24, 131, 30, 8, '#b9b4c4');
+  rect(c, 24, 131, 30, 1, '#d4d0dc');
+  rect(c, 27, 134, 4, 2, '#6b5a9e');
+  rect(c, 47, 134, 4, 2, '#6b5a9e');
+  rect(c, 38, 135, 1, 1, Math.sin(t * 3) > -0.8 ? '#ff5a6e' : '#7a2a33');
+  line(c, 52, 139, 54, 143, '#1a1622');
+  line(c, 54, 143, 60, 147, '#1a1622');
+  // controller on the floor
+  rect(c, 58, 152, 19, 2, 'rgba(0,0,0,0.3)');
+  rect(c, 59, 146, 17, 5, '#b9b4c4');
+  rect(c, 58, 147, 1, 3, '#b9b4c4');
+  rect(c, 76, 147, 1, 3, '#b9b4c4');
+  rect(c, 61, 148, 3, 1, '#2a2630');
+  rect(c, 62, 147, 1, 3, '#2a2630');
+  rect(c, 71, 147, 1, 1, '#FF5A6E');
+  rect(c, 73, 148, 1, 1, '#FFD45E');
+  rect(c, 69, 148, 1, 1, '#7CCBFF');
+  rect(c, 71, 149, 1, 1, '#7BDEA3');
+}
+
+const PUZZLE = ['xxyxx', 'yxxgx', 'xggxy', 'gggxx', 'ggggx', 'ggggg'];
+const PUZZLE_COLORS = { g: '#6aaa64', y: '#c9b458', x: '#787c7e' };
+
+function drawNewspaper(c, t) {
+  rect(c, 258, 64, 1, 36, 'rgba(0,0,0,0.3)');
+  rect(c, 224, 63, 34, 37, '#ebe5d3');
+  rect(c, 257, 63, 1, 37, '#cfc8b4');
+  rect(c, 224, 99, 34, 1, '#cfc8b4');
+  text(c, 'TRUMPLE', 227, 66, '#1c1814');
+  rect(c, 226, 72, 30, 1, '#1c1814');
+  rect(c, 226, 74, 30, 1, '#8a8478');
+  const revealPhase = t % 7;
+  PUZZLE.forEach((row, r) => [...row].forEach((letter, col) => {
+    const x = 226 + col * 4, y = 76 + r * 4;
+    const color = PUZZLE_COLORS[letter];
+    if (r < PUZZLE.length - 1) return rect(c, x, y, 3, 3, color);
+    const revealAt = 1 + col * 0.3;
+    if (revealPhase < revealAt) {
+      c.strokeStyle = '#bdb6a2';
+      c.strokeRect(x + 0.5, y + 0.5, 2, 2);
+    } else if (revealPhase < revealAt + 0.12) {
+      rect(c, x, y + 1, 3, 1, color);
+    } else {
+      rect(c, x, y, 3, 3, color);
+    }
+  }));
+  rect(c, 247, 76, 9, 5, '#b9b2a0');
+  [8, 9, 6, 9, 7, 9, 8, 5].forEach((len, k) => rect(c, 247, 83 + k * 2, len, 1, '#9a958a'));
+}
+
+let lampOn = true;
+try { lampOn = localStorage.getItem('lamp') !== 'off'; } catch (e) {}
+
+function drawLamp(c) {
+  rect(c, 286, 98, 12, 2, '#2b2b33');
+  rect(c, 287, 97, 10, 1, '#3d3d48');
+  line(c, 292, 97, 296, 84, '#c9a24a');
+  line(c, 296, 83, 287, 72, '#c9a24a');
+  rect(c, 295, 82, 2, 2, '#8a6a2a');
+  [[282, 5], [281, 7], [280, 9], [279, 11], [278, 13]].forEach(([x, w], k) => {
+    rect(c, x, 71 + k, w, 1, '#c94f3f');
+    rect(c, x, 71 + k, 1, 1, '#e0705e');
+  });
+  rect(c, 278, 76, 13, 1, '#8a2b22');
+  rect(c, 282, 77, 5, 1, lampOn ? '#fff1b0' : '#5e584c');
+}
+
+const CAT_COLOR = '#4e4762';
+const CAT = ['#...#....', '##.##....', '#####....', '#o#o#....', '#####....', '.###.....', '#####....', '######...', '#######..', '#######..'];
+const SMALL_HEART = ['xx.xx', 'xxxxx', '.xxx.', '..x..'];
+let pettedAt = -Infinity;
+
+function drawCat(c, t) {
+  const petting = performance.now() - pettedAt < 1600;
+  const blinking = petting || (t % 4.3) < 0.15;
+  sprite(c, CAT, 134, 70, { '#': CAT_COLOR, o: blinking ? CAT_COLOR : '#f2c14e' });
+  const swaySpeed = petting ? 9 : 2;
+  rect(c, 141, 79, 3, 1, CAT_COLOR);
+  for (let y = 80; y < 88; y++) {
+    const sway = y > 82 ? Math.round(Math.sin(t * swaySpeed + y * 0.6)) : 0;
+    rect(c, 144 + sway, y, 1, 1, CAT_COLOR);
+  }
+  if (petting) {
+    const rise = Math.floor((performance.now() - pettedAt) / 200);
+    sprite(c, SMALL_HEART, 135, 63 - rise, { x: '#ff5a7e' });
+  }
+}
+
+const objects = [
+  { id: 'gridpop', href: '/gridpop/', name: 'GridPop', blurb: 'Stack pieces, match the numbers, pop the lines before a tile hits 7.', box: [10, 54, 70, 100], draw: drawTv },
+  { id: 'deepheart', href: '/deepheart/', name: 'Deepheart', blurb: 'Fight monsters, hire heroes, go deeper. A pixel-art dungeon clicker.', box: [97, 134, 66, 21], draw: drawCards },
+  { id: 'elo9000', href: 'https://elo9000.com', name: 'elo9000', blurb: 'Chess analytics, and an opening repertoire built from the games you actually play.', box: [172, 131, 48, 25], draw: drawChess },
+  { id: 'trumple', href: '/trumple/', name: 'Trumple', blurb: 'A Wordle clone.', box: [221, 60, 39, 41], draw: drawNewspaper },
+  { id: 'lamp', name: 'Lamp', blurb: () => `${verb} to switch it ${lampOn ? 'off' : 'on'}.`, box: [274, 68, 30, 33], draw: drawLamp, action: toggleLamp },
+  { id: 'cat', name: 'Cat', blurb: () => performance.now() - pettedAt < 1600 ? 'mrrp.' : 'Pet the cat.', box: [130, 64, 20, 25], draw: drawCat, action: petCat },
+];
+
+// ---------- chess ----------
+
+const PIECES = {
+  P: ['.x.', '.x.', 'xxx'],
+  R: ['x.x', 'xxx', '.x.', 'xxx'],
+  N: ['xx.', '.xx', '.x.', 'xxx'],
+  B: ['.x.', 'x.x', '.x.', 'xxx'],
+  Q: ['x.x', '.x.', 'xxx', '.x.', 'xxx'],
+  K: ['.x.', 'xxx', '.x.', '.x.', 'xxx'],
+};
+const PIECE_PALETTES = { w: { x: '#f4ecd8', s: '#b8a47e' }, b: { x: '#1e1726', s: '#0c0810' } };
+// [file 0-7, rank 1-8, piece, side]
+const POSITION = [
+  [0, 8, 'R', 'b'], [3, 8, 'Q', 'b'], [5, 8, 'R', 'b'], [6, 8, 'K', 'b'],
+  [0, 7, 'P', 'b'], [1, 7, 'P', 'b'], [5, 7, 'P', 'b'], [6, 7, 'P', 'b'], [7, 7, 'P', 'b'],
+  [2, 6, 'N', 'b'], [3, 6, 'P', 'b'], [2, 5, 'B', 'b'], [4, 5, 'P', 'b'],
+  [2, 4, 'B', 'w'], [4, 4, 'P', 'w'], [3, 3, 'P', 'w'],
+  [0, 2, 'P', 'w'], [1, 2, 'P', 'w'], [5, 2, 'P', 'w'], [6, 2, 'P', 'w'], [7, 2, 'P', 'w'],
+  [0, 1, 'R', 'w'], [3, 1, 'Q', 'w'], [5, 1, 'R', 'w'], [6, 1, 'K', 'w'],
+];
+const KNIGHT_SQUARES = [[5, 3], [6, 5]];
+
+function drawPiece(c, type, side, x, bottomY) {
+  const rows = PIECES[type].map((row) => row.slice(0, 2) + (row[2] === 'x' ? 's' : '.'));
+  sprite(c, rows, x, bottomY - rows.length + 1, PIECE_PALETTES[side]);
+}
+
+function squareOrigin(file, rank) {
+  return [176 + file * 5, 139 + (8 - rank) * 2];
+}
+
+function drawChess(c, t) {
+  rect(c, 175, 138, 42, 18, '#2a1a10');
+  for (let rank = 1; rank <= 8; rank++) {
+    for (let file = 0; file < 8; file++) {
+      const [x, y] = squareOrigin(file, rank);
+      rect(c, x, y, 5, 2, (file + rank) % 2 ? '#9a6440' : '#ecd3a4');
+    }
+  }
+  [...POSITION].sort((a, b) => b[1] - a[1]).forEach(([file, rank, type, side]) => {
+    const [x, y] = squareOrigin(file, rank);
+    drawPiece(c, type, side, x + 1, y + 1);
+  });
+  const cycle = t % 4;
+  const [from, to] = cycle < 2 ? KNIGHT_SQUARES : [...KNIGHT_SQUARES].reverse();
+  const hop = Math.min(1, Math.max(0, ((cycle % 2) - 1.7) / 0.3));
+  const [fromX, fromY] = squareOrigin(...from);
+  const [toX, toY] = squareOrigin(...to);
+  const x = Math.round(fromX + (toX - fromX) * hop);
+  const y = Math.round(fromY + (toY - fromY) * hop - Math.sin(Math.PI * hop) * 4);
+  drawPiece(c, 'N', 'w', x + 1, y + 1);
+}
+
+// ---------- lighting ----------
+
+const DARK = [12, 6, 30];
+const LIGHT_LEVELS = 10;
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+const lightLayer = makeLayer();
+const lightImage = lightLayer.ctx.createImageData(W, H);
+
+function currentLights(t) {
+  const lights = [
+    { x: 160, y: 48, r: 58, strength: 1.3, color: [150, 160, 255] },
+    { x: 41, y: 96, r: 52, strength: 1.25 + Math.sin(t * 9) * 0.05, color: [140, 120, 255] },
+    { x: 134, y: 145, r: 14, strength: heartBeat(t) ? 0.8 : 0.5, color: [255, 90, 126] },
+    { x: 160, y: 4, r: 90, strength: 0.25, color: [255, 200, 160] },
+  ];
+  if (lampOn) lights.push({ x: 284, y: 92, r: 56, strength: 1.4, color: [255, 196, 110] });
+  return lights;
+}
+
+function drawLighting(t) {
+  const lights = currentLights(t);
+  const darkness = lampOn ? 0.6 : 0.7;
+  const data = lightImage.data;
+  for (let y = 0, i = 0; y < H; y++) {
+    for (let x = 0; x < W; x++, i += 4) {
+      let sum = 0, r = 0, g = 0, b = 0;
+      for (const light of lights) {
+        const dx = x - light.x, dy = y - light.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance >= light.r) continue;
+        const f = (1 - distance / light.r) * light.strength;
+        sum += f;
+        r += f * light.color[0];
+        g += f * light.color[1];
+        b += f * light.color[2];
+      }
+      const lit = Math.min(1, sum);
+      const alpha = Math.floor(darkness * (1 - lit) * LIGHT_LEVELS + BAYER[(y & 3) * 4 + (x & 3)]) / LIGHT_LEVELS;
+      data[i] = sum ? DARK[0] * (1 - lit) + (r / sum) * lit : DARK[0];
+      data[i + 1] = sum ? DARK[1] * (1 - lit) + (g / sum) * lit : DARK[1];
+      data[i + 2] = sum ? DARK[2] * (1 - lit) + (b / sum) * lit : DARK[2];
+      data[i + 3] = (alpha + lit * 0.1) * 255;
+    }
+  }
+  lightLayer.ctx.putImageData(lightImage, 0, 0);
+  ctx.drawImage(lightLayer.canvas, 0, 0);
+}
+
+// Fairy lights and the bulb glow on top of the darkness.
+function drawEmissive(c, t) {
+  for (let i = 0, x = 6; x < W; i++, x += 10) {
+    const color = BULB_COLORS[i % BULB_COLORS.length];
+    const y = wireY(x) + 1;
+    if (Math.sin(t * 1.5 + i * 1.3) > -0.3) {
+      c.globalAlpha = 0.25;
+      rect(c, x - 1, y - 1, 3, 4, color);
+      c.globalAlpha = 1;
+      rect(c, x, y, 1, 2, color);
+    } else {
+      rect(c, x, y, 1, 2, '#3a2e3a');
+    }
+  }
+  if (lampOn) rect(c, 282, 77, 5, 1, '#fff1b0');
+}
+
+// ---------- hover, focus and exit ----------
+
+const outlineLayer = makeLayer();
+const exitLayer = makeLayer(4, 4);
+let active = null;
+let leaving = null;
+let lastPointerType = 'mouse';
+
+function drawOutline(obj) {
+  const c = outlineLayer.ctx;
+  c.clearRect(0, 0, W, H);
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) c.drawImage(obj.layer.canvas, dx, dy);
+  c.globalCompositeOperation = 'source-in';
+  rect(c, 0, 0, W, H, OUTLINE);
+  c.globalCompositeOperation = 'source-over';
+  ctx.drawImage(outlineLayer.canvas, 0, 0);
+  ctx.drawImage(obj.layer.canvas, 0, 0);
+}
+
+function drawExit(now) {
+  const progress = Math.min(1, (now - leaving.start) / EXIT_MS);
+  const c = exitLayer.ctx;
+  c.clearRect(0, 0, 4, 4);
+  BAYER.forEach((threshold, i) => { if (threshold < progress) rect(c, i % 4, i >> 2, 1, 1, '#0b0710'); });
+  ctx.fillStyle = ctx.createPattern(exitLayer.canvas, 'repeat');
+  ctx.fillRect(0, 0, W, H);
+  if (progress === 1 && !leaving.navigated) {
+    leaving.navigated = true;
+    location.href = leaving.href;
+  }
+}
+
+function describe(obj) {
+  if (!obj) return `${verb} something in the room.`;
+  const blurb = typeof obj.blurb === 'function' ? obj.blurb() : obj.blurb;
+  const hint = obj.href && lastPointerType === 'touch' ? ' Tap again to open.' : '';
+  return `${obj.name}: ${blurb}${hint}`;
+}
+
+function setActive(obj) {
+  active = obj;
+  statusLine.textContent = describe(obj);
+  tag.hidden = !obj;
+  if (obj) placeTag(obj);
+}
+
+function placeTag(obj) {
+  const [x, y, w] = obj.box;
+  const scale = room.clientWidth / W;
+  tag.textContent = obj.name;
+  const half = tag.offsetWidth / 2;
+  const center = (x + w / 2) * scale;
+  const left = Math.min(Math.max(center, half + 2), room.clientWidth - half - 2);
+  tag.style.left = `${left}px`;
+  tag.style.top = `${y * scale}px`;
+  tag.style.setProperty('--arrow', `${half + center - left}px`);
+}
+
+function toggleLamp() {
+  lampOn = !lampOn;
+  try { localStorage.setItem('lamp', lampOn ? 'on' : 'off'); } catch (e) {}
+}
+
+function petCat() {
+  pettedAt = performance.now();
+  setTimeout(() => { if (active?.id === 'cat') setActive(active); }, 1700);
+}
+
+function onHotspotClick(e, obj) {
+  if (obj.href && lastPointerType === 'touch' && active !== obj) {
+    e.preventDefault();
+    setActive(obj);
+    return;
+  }
+  if (obj.action) {
+    obj.action();
+    setActive(obj);
+    return;
+  }
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || reducedMotion) return;
+  e.preventDefault();
+  tag.hidden = true;
+  leaving = { href: obj.href, start: performance.now() };
+}
+
+for (const obj of objects) {
+  obj.layer = makeLayer();
+  const [x, y, w, h] = obj.box;
+  const el = document.createElement(obj.href ? 'a' : 'button');
+  el.className = 'hotspot';
+  if (obj.href) el.href = obj.href;
+  else el.type = 'button';
+  el.setAttribute('aria-label', obj.href ? `${obj.name}: ${obj.blurb}` : obj.name);
+  Object.assign(el.style, { left: `${x / W * 100}%`, top: `${y / H * 100}%`, width: `${w / W * 100}%`, height: `${h / H * 100}%` });
+  el.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'touch') setActive(obj); });
+  el.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch' && active === obj) setActive(null); });
+  el.addEventListener('focus', () => { if (lastPointerType === 'keyboard') setActive(obj); });
+  el.addEventListener('blur', () => { if (active === obj) setActive(null); });
+  el.addEventListener('click', (e) => onHotspotClick(e, obj));
+  room.appendChild(el);
+}
+
+room.addEventListener('pointerdown', (e) => { lastPointerType = e.pointerType; }, true);
+canvas.addEventListener('pointerdown', () => setActive(null));
+document.addEventListener('keydown', () => { lastPointerType = 'keyboard'; });
+addEventListener('pageshow', (e) => { if (e.persisted) leaving = null; });
+
+function fit() {
+  const availableW = innerWidth - 32;
+  const availableH = innerHeight - 64 - heading.offsetHeight - statusLine.offsetHeight;
+  let scale = Math.min(availableW / W, availableH / H);
+  if (scale >= 2) scale = Math.floor(scale);
+  room.style.width = `${W * scale}px`;
+  room.style.height = `${H * scale}px`;
+  room.style.setProperty('--px', `${scale}px`);
+  if (active) placeTag(active);
+}
+
+let lastRender = -Infinity;
+function render(now) {
+  requestAnimationFrame(render);
+  if (now - lastRender < FRAME_MS) return;
+  const dt = Math.min(0.1, (now - lastRender) / 1000);
+  lastRender = now;
+  const t = reducedMotion ? 0 : now / 1000;
+  if (!reducedMotion) stepGridPop(dt);
+  drawRoom(ctx, t);
+  for (const obj of objects) {
+    obj.layer.ctx.clearRect(0, 0, W, H);
+    obj.draw(obj.layer.ctx, t);
+    ctx.drawImage(obj.layer.canvas, 0, 0);
+  }
+  drawLighting(t);
+  drawEmissive(ctx, t);
+  if (active) drawOutline(active);
+  if (leaving) drawExit(now);
+}
+
+setActive(null);
+fit();
+addEventListener('resize', fit);
+document.fonts?.ready.then(fit);
+requestAnimationFrame(render);
+</script>
 </body>
 </html>
