@@ -613,7 +613,7 @@ const objects = [
   { id: 'elo9000', href: 'https://elo9000.com', name: 'elo9000', blurb: 'Chess analytics, and an opening repertoire built from the games you actually play.', box: [172, 131, 48, 25], draw: drawChess },
   { id: 'trumple', href: '/trumple/', name: 'Trumple', blurb: 'A Wordle clone.', box: [221, 60, 39, 41], draw: drawNewspaper },
   { id: 'lamp', name: 'Lamp', blurb: () => `${verb} to switch it ${lampOn ? 'off' : 'on'}.`, box: [274, 68, 30, 33], draw: drawLamp, action: toggleLamp },
-  { id: 'cat', name: 'Cat', blurb: () => performance.now() - pettedAt < 1600 ? 'mrrp.' : 'Pet the cat.', box: [130, 64, 20, 25], draw: drawCat, action: petCat },
+  { id: 'cat', name: 'Koko', blurb: () => performance.now() - pettedAt < 1600 ? 'mrrp.' : `${verb} to pet.`, box: [130, 64, 20, 25], draw: drawCat, action: petCat },
   {
     id: 'music',
     name: 'Record player',
