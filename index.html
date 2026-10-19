@@ -303,16 +303,6 @@ function drawPlant(c) {
   rect(c, 292, 158, 16, 1, '#8f4a2c');
 }
 
-function drawBeanbag(c) {
-  rect(c, 8, 172, 44, 3, 'rgba(0,0,0,0.3)');
-  for (let dy = -11; dy <= 10; dy++) {
-    const half = Math.round(19 * Math.sqrt(1 - (dy / 11.5) ** 2));
-    rect(c, 30 - half, 162 + dy, half * 2 + 1, 1, dy < -2 ? '#3f6fb5' : '#2f5590');
-  }
-  rect(c, 20, 153, 8, 1, '#5d8ad0');
-  rect(c, 30, 155, 1, 6, '#2f5590');
-}
-
 function drawRoom(c, t) {
   rect(c, 0, 0, W, 130, '#2b2140');
   for (let x = 3; x < W; x += 8) rect(c, x, 0, 1, 124, '#30254a');
@@ -339,7 +329,6 @@ function drawRoom(c, t) {
   drawTvStand(c);
   drawRug(c);
   drawCoffeeTable(c);
-  drawBeanbag(c);
   drawPlant(c);
 }
 
@@ -459,19 +448,95 @@ function drawTv(c, t) {
   rect(c, 27, 134, 4, 2, '#6b5a9e');
   rect(c, 47, 134, 4, 2, '#6b5a9e');
   rect(c, 38, 135, 1, 1, Math.sin(t * 3) > -0.8 ? '#ff5a6e' : '#7a2a33');
-  line(c, 52, 139, 54, 143, '#1a1622');
-  line(c, 54, 143, 60, 147, '#1a1622');
+  line(c, 52, 139, 54, 141, '#1a1622');
+  line(c, 54, 141, 58, 144, '#1a1622');
   // controller on the floor
-  rect(c, 58, 152, 19, 2, 'rgba(0,0,0,0.3)');
-  rect(c, 59, 146, 17, 5, '#b9b4c4');
-  rect(c, 58, 147, 1, 3, '#b9b4c4');
-  rect(c, 76, 147, 1, 3, '#b9b4c4');
-  rect(c, 61, 148, 3, 1, '#2a2630');
-  rect(c, 62, 147, 1, 3, '#2a2630');
-  rect(c, 71, 147, 1, 1, '#FF5A6E');
-  rect(c, 73, 148, 1, 1, '#FFD45E');
-  rect(c, 69, 148, 1, 1, '#7CCBFF');
-  rect(c, 71, 149, 1, 1, '#7BDEA3');
+  rect(c, 58, 149, 19, 2, 'rgba(0,0,0,0.3)');
+  rect(c, 59, 143, 17, 5, '#b9b4c4');
+  rect(c, 58, 144, 1, 3, '#b9b4c4');
+  rect(c, 76, 144, 1, 3, '#b9b4c4');
+  rect(c, 61, 145, 3, 1, '#2a2630');
+  rect(c, 62, 144, 1, 3, '#2a2630');
+  rect(c, 71, 144, 1, 1, '#FF5A6E');
+  rect(c, 73, 145, 1, 1, '#FFD45E');
+  rect(c, 69, 145, 1, 1, '#7CCBFF');
+  rect(c, 71, 146, 1, 1, '#7BDEA3');
+}
+
+const TRACKS = [
+  { title: 'City in the Rearview', src: 'music/city-in-the-rearview.mp3' },
+  { title: 'Autumn', src: 'music/autumn.mp3' },
+  { title: 'Clouds', src: 'music/clouds.mp3' },
+  { title: 'Letting Go of the Past', src: 'music/letting-go-of-the-past.mp3' },
+  { title: 'Dream Pop', src: 'music/dream-pop.mp3' },
+];
+const SLEEVE_COLORS = ['#c94f4f', '#e0b24a', '#3f6fb5', '#d9d2c0', '#4f9a6a', '#8a5ac9', '#141018'];
+const NOTE = ['.xx', '.x.', '.x.', 'xx.'];
+const music = { audio: new Audio(), trackIndex: Math.floor(Math.random() * TRACKS.length), playing: false, stoppedByUser: false };
+music.audio.preload = 'none';
+music.audio.volume = 0.6;
+
+function playTrack(trackIndex) {
+  music.trackIndex = trackIndex % TRACKS.length;
+  const track = TRACKS[music.trackIndex];
+  music.audio.src = track.src;
+  if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: 'HoliznaCC0' });
+  return music.audio.play();
+}
+
+function toggleMusic() {
+  music.stoppedByUser = !music.audio.paused;
+  if (music.stoppedByUser) music.audio.pause();
+  else music.audio.play().catch(() => {});
+}
+
+// Browsers block audio until the visitor interacts, so retry on their first click, tap or key press.
+// A press on the record player itself is left to its own click handler.
+function autoplay() {
+  playTrack(music.trackIndex).catch(() => {
+    const gestures = ['pointerup', 'keydown'];
+    const stopListening = () => gestures.forEach((type) => removeEventListener(type, start, true));
+    const start = (e) => {
+      if (recordPlayer.el.contains(e.target)) return;
+      if (!music.audio.paused || music.stoppedByUser) return stopListening();
+      music.audio.play().then(stopListening, () => {});
+    };
+    gestures.forEach((type) => addEventListener(type, start, true));
+  });
+}
+
+function drawRecordPlayer(c, t) {
+  rect(c, 10, 176, 40, 2, 'rgba(0,0,0,0.3)');
+  rect(c, 12, 161, 36, 16, '#8a6a3a');
+  for (const y of [165, 170]) {
+    for (let x = 13, k = 0; x < 47; x++, k++) rect(c, x, y, 1, 2, k % 3 === 2 ? '#2a1c12' : SLEEVE_COLORS[(k * 5 + y) % SLEEVE_COLORS.length]);
+  }
+  rect(c, 12, 161, 1, 16, '#6e5230');
+  rect(c, 47, 161, 1, 16, '#6e5230');
+  rect(c, 10, 150, 40, 8, '#6b4632');
+  rect(c, 10, 150, 40, 1, '#80553c');
+  rect(c, 10, 158, 40, 3, '#4a2f22');
+  for (let dy = -3; dy <= 3; dy++) {
+    const half = Math.round(11 * Math.sqrt(1 - (dy / 3.5) ** 2));
+    rect(c, 26 - half, 154 + dy, half * 2 + 1, 1, '#141018');
+  }
+  rect(c, 19, 153, 14, 1, '#221c2a');
+  rect(c, 19, 155, 14, 1, '#221c2a');
+  rect(c, 25, 154, 3, 1, '#ff5a7e');
+  if (music.playing) {
+    const angle = t * 5;
+    rect(c, 26 + Math.round(Math.cos(angle) * 8), 154 + Math.round(Math.sin(angle) * 2), 2, 1, '#6a6080');
+  }
+  rect(c, 43, 151, 3, 2, '#9a96a8');
+  if (music.playing) {
+    line(c, 44, 152, 35, 155, '#c9c3d4');
+    rect(c, 34, 155, 2, 1, '#e8e4f0');
+  } else {
+    line(c, 44, 152, 42, 157, '#c9c3d4');
+    rect(c, 41, 157, 2, 1, '#e8e4f0');
+  }
+  rect(c, 14, 159, 2, 1, '#c9a24a');
+  rect(c, 46, 159, 1, 1, music.playing ? '#7BDEA3' : '#3a4a3a');
 }
 
 const PUZZLE = ['xxyxx', 'yxxgx', 'xggxy', 'gggxx', 'ggggx', 'ggggg'];
@@ -543,13 +608,29 @@ function drawCat(c, t) {
 }
 
 const objects = [
-  { id: 'gridpop', href: '/gridpop/', name: 'GridPop', blurb: 'Stack pieces, match the numbers, pop the lines before a tile hits 7.', box: [10, 54, 70, 100], draw: drawTv },
+  { id: 'gridpop', href: '/gridpop/', name: 'GridPop', blurb: 'Stack pieces, match the numbers, pop the lines before a tile hits 7.', box: [10, 54, 70, 93], draw: drawTv },
   { id: 'deepheart', href: '/deepheart/', name: 'Deepheart', blurb: 'Fight monsters, hire heroes, go deeper. A pixel-art dungeon clicker.', box: [97, 134, 66, 21], draw: drawCards },
   { id: 'elo9000', href: 'https://elo9000.com', name: 'elo9000', blurb: 'Chess analytics, and an opening repertoire built from the games you actually play.', box: [172, 131, 48, 25], draw: drawChess },
   { id: 'trumple', href: '/trumple/', name: 'Trumple', blurb: 'A Wordle clone.', box: [221, 60, 39, 41], draw: drawNewspaper },
   { id: 'lamp', name: 'Lamp', blurb: () => `${verb} to switch it ${lampOn ? 'off' : 'on'}.`, box: [274, 68, 30, 33], draw: drawLamp, action: toggleLamp },
   { id: 'cat', name: 'Cat', blurb: () => performance.now() - pettedAt < 1600 ? 'mrrp.' : 'Pet the cat.', box: [130, 64, 20, 25], draw: drawCat, action: petCat },
+  {
+    id: 'music',
+    name: 'Record player',
+    blurb: () => music.playing
+      ? `Now playing "${TRACKS[music.trackIndex].title}" by HoliznaCC0. ${verb} to stop.`
+      : `${verb} to play some lofi.`,
+    box: [8, 147, 44, 31],
+    draw: drawRecordPlayer,
+    action: toggleMusic,
+  },
 ];
+const recordPlayer = objects.find((obj) => obj.id === 'music');
+
+music.audio.addEventListener('play', () => { music.playing = true; refreshStatus(recordPlayer); });
+music.audio.addEventListener('pause', () => { music.playing = false; refreshStatus(recordPlayer); });
+music.audio.addEventListener('ended', () => playTrack(music.trackIndex + 1).catch(() => {}));
+if ('mediaSession' in navigator) navigator.mediaSession.setActionHandler('nexttrack', () => playTrack(music.trackIndex + 1).catch(() => {}));
 
 // ---------- chess ----------
 
@@ -620,6 +701,7 @@ function currentLights(t) {
     { x: 160, y: 4, r: 90, strength: 0.25, color: [255, 200, 160] },
   ];
   if (lampOn) lights.push({ x: 284, y: 92, r: 56, strength: 1.4, color: [255, 196, 110] });
+  lights.push({ x: 28, y: 155, r: 24, strength: music.playing ? 0.75 : 0.4, color: [255, 170, 120] });
   return lights;
 }
 
@@ -667,6 +749,13 @@ function drawEmissive(c, t) {
     }
   }
   if (lampOn) rect(c, 282, 77, 5, 1, '#fff1b0');
+  if (!music.playing) return;
+  for (let k = 0; k < 2; k++) {
+    const phase = (t * 0.35 + k * 0.5) % 1;
+    c.globalAlpha = 1 - phase;
+    sprite(c, NOTE, 20 + k * 9 + Math.round(Math.sin(phase * 6 + k) * 2), 146 - Math.round(phase * 24), { x: '#f2c14e' });
+  }
+  c.globalAlpha = 1;
 }
 
 // ---------- hover, focus and exit ----------
@@ -727,6 +816,10 @@ function placeTag(obj) {
   tag.style.setProperty('--arrow', `${half + center - left}px`);
 }
 
+function refreshStatus(obj) {
+  if (active === obj) setActive(obj);
+}
+
 function toggleLamp() {
   lampOn = !lampOn;
   try { localStorage.setItem('lamp', lampOn ? 'on' : 'off'); } catch (e) {}
@@ -769,6 +862,7 @@ for (const obj of objects) {
   el.addEventListener('blur', () => { if (active === obj) setActive(null); });
   el.addEventListener('click', (e) => onHotspotClick(e, obj));
   room.appendChild(el);
+  obj.el = el;
 }
 
 room.addEventListener('pointerdown', (e) => { lastPointerType = e.pointerType; }, true);
@@ -812,6 +906,7 @@ fit();
 addEventListener('resize', fit);
 document.fonts?.ready.then(fit);
 requestAnimationFrame(render);
+autoplay();
 </script>
 </body>
 </html>
